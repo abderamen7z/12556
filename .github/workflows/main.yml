@@ -1,0 +1,82 @@
+name: Temporary Tailscale VPS
+
+on:
+  # Allows you to manually trigger this workflow from the GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  # Job definition
+  secure-vps:
+    # Use the latest Ubuntu runner
+    runs-on: ubuntu-latest
+    
+    # Keep the session running for up to 6 hours (360 minutes)
+    timeout-minutes: 360
+
+    steps:
+      # Step 1: Install & Configure SSH
+      - name: Install & Configure SSH 🔑
+        # Use 'run: |' for a multiline script
+        run: |
+          # 1. Update packages and install OpenSSH server
+          sudo apt update -y
+          sudo apt install -y openssh-server
+          
+          # 2. Enable and start the SSH service
+          sudo systemctl enable ssh
+          sudo systemctl start ssh
+          
+          # 3. Set the root password (Insecure practice for production, but common for throwaway testing)
+          echo "root:admin@123" | sudo chpasswd
+          
+          # 4. Enable root login via password
+          echo "PermitRootLogin yes" | sudo tee -a /etc/ssh/sshd_config
+          
+          # 5. Restart SSH to apply changes
+          sudo service ssh restart
+          
+          # 6. Output credentials
+          echo "SSH user: root | pass: admin@123"
+
+      # Step 2: Install Tailscale
+      - name: Install Tailscale 🦎
+        # Note: The original 'un: 1' is corrected to 'run: |'
+        run: |
+          # 1. Install Tailscale using the official script
+          curl -fsSL https://tailscale.com/install.sh | sh
+          
+          # 2. Authenticate and bring up the Tailscale interface 
+          # Note: ${{ secrets.TAILSCALE_AUTH_KEY }} must be set in your repo secrets
+          sudo tailscale up --authkey="${{ secrets.TAILSCALE_AUTH_KEY }}" --hostname="github-vps-${{ github.run_id }}"
+
+          # 3. Get the Tailscale IP address (IPv4)
+          tsIP=$(sudo tailscale ip -4 | head -n 1)
+          
+          # 4. Set the IP as an environment variable for later steps
+          echo "TAILSCALE_IP=$tsIP" >> $GITHUB_ENV
+          
+          # 5. Output the IP
+          echo "Tailscale IP: $tsIP"
+
+      # Step 3: Verify and Output Access Info
+      - name: Verify SSH Access ✅
+        # Access the environment variable set in the previous step
+        run: |
+          echo "Tailscale VPS ready!"
+          echo "------------------------------------"
+          echo "IP: ${{ env.TAILSCALE_IP }}"
+          echo "User: root"
+          echo "Pass: admin@123"
+          echo "------------------------------------"
+          echo "To connect, use: ssh root@${{ env.TAILSCALE_IP }}"
+          
+      # Step 4: Keep VPS Alive
+      - name: Keep VPS Alive ⏳
+        # This loop prevents the job from finishing, keeping the runner session open 
+        # until timeout-minutes: 360 is reached.
+        run: |
+          while true; do
+            echo "[$(date)] VPS running..."
+            sleep 300 # Wait 5 minutes (300 seconds)
+          done
+
